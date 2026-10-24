@@ -20,7 +20,7 @@ var adblock = require('../service/src/adblock');
 var proxyModule = require('../service/src/proxy');
 
 async function runTests() {
-  console.log('--- [1/6] Testando Polyfills Chromium 68 ---');
+  console.log('--- [1/7] Testando Polyfills Chromium 68 ---');
   var polyfillCode = fs.readFileSync(
     path.join(__dirname, '../service/src/client-injected/polyfills-chrome68.js'),
     'utf8'
@@ -65,7 +65,7 @@ async function runTests() {
   assert.deepStrictEqual(parsedPoly.toSorted, [1, 2, 3]);
   console.log('   OK: Polyfills Chrome 68 validados.');
 
-  console.log('--- [2/6] Testando Transpilador JS (ES2024 -> Chrome 68) ---');
+  console.log('--- [2/7] Testando Transpilador JS (ES2024 -> Chrome 68) ---');
   var modernJS = [
     'class Counter {',
     '  base = 1_000;',
@@ -92,7 +92,7 @@ async function runTests() {
   assert.strictEqual(execCtx.globalResult, 1052, 'Resultado da execução do código transpilado deve ser 1052');
   console.log('   OK: Sintaxe ES2024 transpilada e executada com sucesso (resultado = ' + execCtx.globalResult + ').');
 
-  console.log('--- [3/6] Testando Transformador CSS (inset / clamp / :where) ---');
+  console.log('--- [3/7] Testando Transformador CSS (inset / clamp / :where) ---');
   var modernCSS = '.modal { position: fixed; inset: 10px 20px; font-size: clamp(14px, 18px, 24px); background: url("/bg.png"); } :where(.btn) { color: red; }';
   var fixedCSS = transpiler.transpileCSS(modernCSS, 'https://site.com/css/main.css', 'http://127.0.0.1:8899');
   assert(fixedCSS.indexOf('top:10px;right:20px;bottom:10px;left:20px') !== -1, 'inset deve virar top/right/bottom/left');
@@ -101,7 +101,7 @@ async function runTests() {
   assert(fixedCSS.indexOf('http://127.0.0.1:8899/proxy?url=') !== -1, 'url() relativo deve apontar para o proxy');
   console.log('   OK: CSS moderno convertido para Chrome 68.');
 
-  console.log('--- [4/6] Testando HTML Rewriter & AdBlock ---');
+  console.log('--- [4/7] Testando HTML Rewriter & AdBlock ---');
   var sampleHTML = [
     '<!DOCTYPE html><html><head>',
     '<meta http-equiv="Content-Security-Policy" content="default-src \'self\'">',
@@ -119,7 +119,61 @@ async function runTests() {
   assert(rewritten.indexOf('_nullishCoalesce') !== -1, 'Script inline deve ser transpilado');
   console.log('   OK: HTML Rewriter e AdBlock funcionando.');
 
-  console.log('--- [5/6] Testando Servidor Proxy Reverso E2E ---');
+  console.log('--- [5/7] Testando envio de formulários pelo proxy ---');
+  var submitListener;
+  var proxiedLocation = {
+    href: 'http://127.0.0.1:8899/proxy?url=' +
+      encodeURIComponent('https://www.youtube.com/results') + '&type=doc',
+    origin: 'http://127.0.0.1:8899'
+  };
+  var hookWindow = {
+    __WEBOS_PROXY_BASE__: 'http://127.0.0.1:8899',
+    __WEBOS_PROXY_TARGET__: 'https://www.youtube.com',
+    location: proxiedLocation,
+    parent: { postMessage: function () {} },
+    addEventListener: function () {}
+  };
+  var hookDocument = {
+    title: 'YouTube',
+    addEventListener: function (name, listener) {
+      if (name === 'submit') submitListener = listener;
+    },
+    querySelectorAll: function () { return []; }
+  };
+  var hookSandbox = { window: hookWindow, document: hookDocument, URL: URL };
+  vm.createContext(hookSandbox);
+  vm.runInContext(
+    fs.readFileSync(path.join(__dirname, '../service/src/client-injected/proxy-hook.js'), 'utf8'),
+    hookSandbox
+  );
+
+  var form = {
+    tagName: 'FORM',
+    method: 'get',
+    action: proxiedLocation.href,
+    getAttribute: function () { return this.action; },
+    elements: [
+      { name: 'search_query', type: 'text', value: 'webOS TV & navegador' },
+      { name: 'sp', type: 'hidden', value: 'EgIQAQ==' },
+      { name: 'ignored', type: 'checkbox', value: '1', checked: false }
+    ]
+  };
+  var submitPrevented = false;
+  submitListener({
+    target: form,
+    preventDefault: function () { submitPrevented = true; }
+  });
+
+  assert.strictEqual(submitPrevented, true, 'Busca GET deve ser interceptada antes de substituir os parâmetros do proxy');
+  var searchProxyUrl = new URL(proxiedLocation.href);
+  var searchTarget = new URL(searchProxyUrl.searchParams.get('url'));
+  assert.strictEqual(searchTarget.origin, 'https://www.youtube.com');
+  assert.strictEqual(searchTarget.pathname, '/results');
+  assert.strictEqual(searchTarget.searchParams.get('search_query'), 'webOS TV & navegador');
+  assert.strictEqual(searchTarget.searchParams.get('sp'), 'EgIQAQ==');
+  console.log('   OK: Campos da busca foram acrescentados à URL original do YouTube dentro do proxy.');
+
+  console.log('--- [6/7] Testando Servidor Proxy Reverso E2E ---');
   await new Promise(function (resolve, reject) {
     // Servidor mock simulando um site moderno com X-Frame-Options: DENY
     var upstream = http.createServer(function (req, res) {
@@ -160,7 +214,7 @@ async function runTests() {
             var headersUrl = 'http://127.0.0.1:18899/proxy?url=' +
               encodeURIComponent(apiTarget) + '&type=xhr';
 
-            console.log('--- [6/6] Testando cabeçalhos de origem no Proxy ---');
+            console.log('--- [7/7] Testando cabeçalhos de origem no Proxy ---');
             http.get(headersUrl, {
               headers: {
                 Origin: 'http://127.0.0.1:18899',

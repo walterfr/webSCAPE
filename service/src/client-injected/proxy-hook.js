@@ -64,6 +64,46 @@
     return PROXY_BASE + '/proxy?url=' + encodeURIComponent(resolved) + suffix;
   }
 
+  function getFormTargetUrl(form) {
+    var rawAction = form.getAttribute('action') || form.action || TARGET_URL;
+    try {
+      var actionUrl = new URL(rawAction, window.location.href);
+      var proxyOrigin = new URL(PROXY_BASE).origin;
+      if (actionUrl.origin === proxyOrigin && actionUrl.pathname === '/proxy') {
+        var targetUrl = actionUrl.searchParams.get('url');
+        if (targetUrl) return new URL(targetUrl).href;
+      }
+      return resolveTargetUrl(rawAction);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function serializeForm(form, submitter) {
+    var values = [];
+    var elements = form.elements || [];
+    for (var i = 0; i < elements.length; i++) {
+      var element = elements[i];
+      var name = element.name;
+      var type = String(element.type || '').toLowerCase();
+      if (!name || element.disabled) continue;
+      if (type === 'submit' || type === 'button' || type === 'reset' || type === 'image' || type === 'file') {
+        if (element !== submitter) continue;
+      }
+      if ((type === 'checkbox' || type === 'radio') && !element.checked) continue;
+      if (element.tagName && element.tagName.toLowerCase() === 'select' && element.multiple) {
+        for (var j = 0; j < element.options.length; j++) {
+          if (element.options[j].selected && !element.options[j].disabled) {
+            values.push(encodeURIComponent(name) + '=' + encodeURIComponent(element.options[j].value).replace(/%20/g, '+'));
+          }
+        }
+      } else {
+        values.push(encodeURIComponent(name) + '=' + encodeURIComponent(element.value || '').replace(/%20/g, '+'));
+      }
+    }
+    return values.join('&');
+  }
+
   // Notifica a casca da TV quando vídeos HLS (.m3u8) ou MP4 diretos são detectados
   var detectedMedia = Object.create(null);
   function checkMediaUrl(url) {
@@ -229,6 +269,23 @@
       e.preventDefault();
       window.location.href = toProxyUrl(resolved, 'doc');
     }
+  }, true);
+
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!form || !form.tagName || form.tagName.toLowerCase() !== 'form') return;
+    if (String(form.method || 'get').toLowerCase() !== 'get') return;
+
+    var targetUrl = getFormTargetUrl(form);
+    if (!targetUrl) return;
+
+    var query = serializeForm(form, e.submitter);
+    if (query) {
+      targetUrl += (targetUrl.indexOf('?') === -1 ? '?' : '&') + query;
+    }
+
+    e.preventDefault();
+    window.location.href = toProxyUrl(targetUrl, 'doc');
   }, true);
 
   // 7. Notifica título e URL carregada + escaneia elementos <video> na página
