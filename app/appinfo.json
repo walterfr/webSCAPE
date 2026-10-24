@@ -1,0 +1,25 @@
+{
+  "id": "com.webscape.app",
+  "version": "1.0.0",
+  "vendor": "webSCAPE",
+  "type": "web",
+  "main": "index.html",
+  "title": "webSCAPE",
+  "icon": "assets/icon80.png",
+  "largeIcon": "assets/icon130.png",
+  "resolution": "1920x1080",
+  "bgColor": "#0e2238",
+  "iconColor": "#38bdf8",
+  "disableBackHistoryAPI": true,
+  "handlesRelaunch": true,
+  "requiredPermissions": [
+    "time.query",
+    "activity.operation",
+    "com.webscape.app.service.group"
+  ],
+  "requiredACG": [
+    "time.query",
+    "activity.operation",
+    "com.webscape.app.service.group"
+  ]
+}

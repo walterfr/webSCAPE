@@ -1,0 +1,7 @@
+node_modules/
+dist/
+scratch/
+*.ipk
+npm-debug.log*
+branding/test_svg.png
+branding/tv_screenshot.png

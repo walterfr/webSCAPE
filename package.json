@@ -1,0 +1,17 @@
+{
+  "name": "webos-modern-browser",
+  "version": "1.0.0",
+  "description": "Navegador moderno para LG webOS 5.6.2 (Chromium 68) com Proxy Transpilador e Polyfills",
+  "private": true,
+  "scripts": {
+    "build": "node build.js",
+    "package": "node build.js --ipk",
+    "start": "node service/src/standalone-dev.js",
+    "test": "node test/verify.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "sucrase": "^3.35.0",
+    "ws": "^8.22.0"
+  }
+}

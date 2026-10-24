@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920, height=1080, initial-scale=1.0, user-scalable=no">
+  <title>webSCAPE</title>
+  <link rel="stylesheet" href="css/browser.css">
+</head>
+<body>
+  <!-- Barra Superior retrátil (TV 10-foot UI) -->
+  <header id="top-chrome" class="chrome-bar">
+    <!-- Linha 1: Abas + Status do Motor Transpilador -->
+    <div class="tabs-row">
+      <div class="brand-badge">
+        <span class="brand-dot" id="service-dot"></span>
+        <img class="brand-logo" src="assets/icon80.png" alt=""><span class="brand-title">webSCAPE</span>
+        <span class="brand-sub" id="service-status-label">Iniciando motor...</span>
+      </div>
+
+      <div id="tabs-container" class="tabs-list" role="tablist"></div>
+
+      <button id="btn-new-tab" class="tv-btn icon-btn focusable" title="Nova Aba">
+        <span>+ Nova Aba</span>
+      </button>
+
+      <div class="remote-hints">
+        <span class="hint"><i class="dot red"></i> Barra</span>
+        <span class="hint"><i class="dot green"></i> Zoom</span>
+        <span class="hint"><i class="dot yellow"></i> AdBlock</span>
+        <span class="hint"><i class="dot blue"></i> Modo UA</span>
+      </div>
+    </div>
+
+    <!-- Linha 2: Controles de Navegação + Barra de Endereço + Ferramentas -->
+    <div class="nav-row">
+      <button id="btn-back" class="tv-btn focusable" title="Voltar">◀</button>
+      <button id="btn-forward" class="tv-btn focusable" title="Avançar">▶</button>
+      <button id="btn-reload" class="tv-btn focusable" title="Recarregar">↻</button>
+      <button id="btn-home" class="tv-btn focusable" title="Página Inicial">⌂</button>
+
+      <form id="url-form" class="url-bar-wrapper">
+        <input
+          id="url-input"
+          type="text"
+          class="url-input focusable"
+          placeholder="Digite um endereço web ou pesquise (transpilado para Chrome 68)..."
+          autocomplete="off"
+          spellcheck="false"
+        >
+        <button type="submit" id="btn-go" class="tv-btn primary-btn focusable">Ir</button>
+      </form>
+
+      <button id="btn-native-video" class="tv-btn media-btn focusable hidden" title="Assistir no Player Nativo LG">
+        ▶ Vídeo Nativo (<span id="media-count">0</span>)
+      </button>
+
+      <button id="btn-zoom" class="tv-btn pill-btn focusable" title="Alternar Zoom (Botão Verde)">
+        Zoom: <strong id="zoom-label">100%</strong>
+      </button>
+
+      <button id="btn-adblock" class="tv-btn pill-btn active focusable" title="Bloqueador de Anúncios (Botão Amarelo)">
+        AdBlock: <strong id="adblock-label">ON (0)</strong>
+      </button>
+
+      <button id="btn-ua" class="tv-btn pill-btn focusable" title="Alternar User-Agent (Botão Azul)">
+        UA: <strong id="ua-label">Desktop</strong>
+      </button>
+    </div>
+  </header>
+
+  <!-- Gatilho invisível no topo para reabrir a barra com o cursor do Magic Remote -->
+  <div id="top-hover-zone" class="top-hover-zone" title="Mostrar barra do navegador"></div>
+
+  <!-- Área Principal: Speed Dial (Nova Aba) + Viewport do Iframe -->
+  <main id="viewport-area" class="viewport-area">
+    <!-- Tela Inicial / Speed Dial -->
+    <section id="home-screen" class="home-screen">
+      <div class="hero-box">
+        <img class="hero-logo" src="assets/icon130.png" alt=""><h1>webSCAPE</h1>
+        <p>Motor Transpilador ES2025 → Chromium 68 + Polyfills + AdBlock Integrado</p>
+      </div>
+
+      <div id="speed-dial-grid" class="speed-dial-grid"></div>
+
+      <div class="proxy-config-bar">
+        <span>Motor Local: <code id="proxy-endpoint-display">http://127.0.0.1:8899</code></span>
+        <button id="btn-change-proxy" class="tv-btn small-btn focusable">Configurar IP do Proxy (Opcional)</button>
+        <button id="btn-clear-session" class="tv-btn small-btn focusable">Limpar Cookies / Cache</button>
+      </div>
+    </section>
+
+    <!-- Iframe da Aba Ativa -->
+    <iframe
+      id="browser-frame"
+      class="browser-frame hidden"
+      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-presentation"
+      allow="autoplay; fullscreen; encrypted-media"
+    ></iframe>
+  </main>
+
+  <!-- Modal do Player de Vídeo Nativo de Hardware LG -->
+  <div id="native-player-modal" class="player-modal hidden">
+    <div class="player-header">
+      <span id="player-title" class="player-title">Reprodutor Nativo de Hardware LG</span>
+      <button id="btn-close-player" class="tv-btn danger-btn focusable">✕ Fechar Player (Voltar)</button>
+    </div>
+    <video id="native-video-el" class="native-video" controls autoplay preload="auto"></video>
+  </div>
+
+  <!-- Toast de Notificação -->
+  <div id="tv-toast" class="tv-toast hidden"></div>
+
+  <script src="js/native-player.js"></script>
+  <script src="js/remote-nav.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

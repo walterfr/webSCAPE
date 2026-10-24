@@ -1,0 +1,20 @@
+{
+  "id": "com.webscape.app.service",
+  "description": "Proxy Transpilador ES2024->Chrome68 para Navegador Moderno webOS",
+  "services": [
+    {
+      "name": "com.webscape.app.service",
+      "description": "Serviço de transpilação JS/CSS e AdBlock local",
+      "commands": [
+        {
+          "name": "startProxy",
+          "public": true
+        },
+        {
+          "name": "status",
+          "public": true
+        }
+      ]
+    }
+  ]
+}
