@@ -77,6 +77,7 @@
 
   // 1. Acorda o JS Service nativo no webOS via PalmServiceBridge (Luna Bus)
   var lunaBridge = null;
+  var proxyControlToken = '';
   function startLunaService() {
     try {
       if (typeof PalmServiceBridge !== 'undefined') {
@@ -86,6 +87,7 @@
             var res = JSON.parse(msg);
             if (res && res.proxyBase) {
               proxyBase = res.proxyBase;
+              proxyControlToken = res.controlToken || proxyControlToken;
               proxyEndpointDisplay.textContent = proxyBase;
               updateServiceUI(true, res.adblock);
             }
@@ -138,6 +140,7 @@
     var xhr = new XMLHttpRequest();
     xhr.open('POST', proxyBase + '/config', true);
     xhr.setRequestHeader('Content-Type', 'application/json');
+    if (proxyControlToken) xhr.setRequestHeader('X-WebOS-Control-Token', proxyControlToken);
     xhr.onload = function () {
       if (xhr.status === 200) {
         try {

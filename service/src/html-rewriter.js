@@ -10,6 +10,7 @@ var urlModule = require('url');
 var URL = global.URL || urlModule.URL;
 var transpiler = require('./transpiler');
 var adblock = require('./adblock');
+var originMap = require('./origin-map');
 
 function decodeHtmlEntities(str) {
   if (!str || typeof str !== 'string') return str;
@@ -44,7 +45,7 @@ function resolveUrl(rawUrl, baseUrl) {
 
 function makeProxyUrl(targetUrl, proxyBase, type) {
   var suffix = type ? '&type=' + encodeURIComponent(type) : '';
-  return proxyBase + '/proxy?url=' + encodeURIComponent(targetUrl) + suffix;
+  return originMap.getProxyBaseForUrl(targetUrl, proxyBase) + '/proxy?url=' + encodeURIComponent(targetUrl) + suffix;
 }
 
 function rewriteHTML(html, targetUrl, proxyBase) {

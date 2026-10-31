@@ -77,6 +77,7 @@ if (Service) {
                 returnValue: true,
                 running: proxyInfo.running,
                 proxyBase: proxyInfo.proxyBase,
+                controlToken: proxyInstance.controlToken,
                 adblock: adblock.getStats()
               });
             } catch (_) {
@@ -91,6 +92,7 @@ if (Service) {
       returnValue: true,
       running: proxyInfo.running,
       proxyBase: proxyInfo.proxyBase,
+      controlToken: proxyInstance.controlToken,
       adblock: adblock.getStats(),
       subscribed: !!isSub
     });
@@ -105,6 +107,7 @@ if (Service) {
       returnValue: true,
       running: proxyInfo.running,
       proxyBase: proxyInfo.proxyBase,
+      controlToken: proxyInstance.controlToken,
       adblock: adblock.getStats()
     });
   });
