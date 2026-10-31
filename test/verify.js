@@ -18,6 +18,7 @@ var transpiler = require('../service/src/transpiler');
 var htmlRewriter = require('../service/src/html-rewriter');
 var adblock = require('../service/src/adblock');
 var proxyModule = require('../service/src/proxy');
+var originMap = require('../service/src/origin-map');
 
 async function runTests() {
   console.log('--- [1/7] Testando Polyfills Chromium 68 ---');
@@ -98,7 +99,7 @@ async function runTests() {
   assert(fixedCSS.indexOf('top:10px;right:20px;bottom:10px;left:20px') !== -1, 'inset deve virar top/right/bottom/left');
   assert(fixedCSS.indexOf('font-size: 18px') !== -1, 'clamp deve usar valor preferido');
   assert(fixedCSS.indexOf(':where') === -1, ':where deve ser simplificado');
-  assert(fixedCSS.indexOf('http://127.0.0.1:8899/proxy?url=') !== -1, 'url() relativo deve apontar para o proxy');
+  assert(fixedCSS.indexOf(originMap.getProxyBaseForUrl('https://site.com/bg.png', 'http://127.0.0.1:8899') + '/proxy?url=') !== -1, 'url() relativo deve apontar para o proxy');
   console.log('   OK: CSS moderno convertido para Chrome 68.');
 
   console.log('--- [4/7] Testando HTML Rewriter & AdBlock ---');
@@ -194,12 +195,14 @@ async function runTests() {
 
     upstream.listen(0, '127.0.0.1', function () {
       var upPort = upstream.address().port;
-      var proxyInst = proxyModule.createProxyServer(18899, '127.0.0.1');
+      var proxyInst = proxyModule.createProxyServer(18899, '127.0.0.1', { allowLocalTargets: true });
       proxyInst.start(function (err) {
         if (err) return reject(err);
 
         var target = 'http://127.0.0.1:' + upPort + '/index.html';
-        http.get('http://127.0.0.1:18899/proxy?url=' + encodeURIComponent(target) + '&type=doc', function (res) {
+        var docProxyBase = originMap.getProxyBaseForUrl(target, 'http://127.0.0.1:18899');
+        var docHost = new (require('url').URL)(docProxyBase).host;
+        http.get('http://127.0.0.1:18899/proxy?url=' + encodeURIComponent(target) + '&type=doc', { headers: { Host: docHost } }, function (res) {
           assert.strictEqual(res.headers['x-frame-options'], undefined, 'X-Frame-Options deve ser removido pelo proxy');
           assert.strictEqual(res.headers['content-security-policy'], undefined, 'CSP deve ser removido pelo proxy');
 
@@ -211,12 +214,15 @@ async function runTests() {
             var browserReferer = 'http://127.0.0.1:18899/proxy?url=' +
               encodeURIComponent(sourcePage) + '&type=doc';
             var apiTarget = 'http://127.0.0.1:' + upPort + '/headers';
+            var apiProxyBase = originMap.getProxyBaseForUrl(apiTarget, 'http://127.0.0.1:18899');
+            var apiHost = new (require('url').URL)(apiProxyBase).host;
             var headersUrl = 'http://127.0.0.1:18899/proxy?url=' +
               encodeURIComponent(apiTarget) + '&type=xhr';
 
             console.log('--- [7/7] Testando cabeçalhos de origem no Proxy ---');
             http.get(headersUrl, {
               headers: {
+                Host: apiHost,
                 Origin: 'http://127.0.0.1:18899',
                 Referer: browserReferer
               }

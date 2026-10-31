@@ -5,3 +5,4 @@ scratch/
 npm-debug.log*
 branding/test_svg.png
 branding/tv_screenshot.png
+.codegraph/
