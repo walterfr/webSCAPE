@@ -8,11 +8,11 @@
       "commands": [
         {
           "name": "startProxy",
-          "public": true
+          "public": false
         },
         {
           "name": "status",
-          "public": true
+          "public": false
         }
       ]
     }

@@ -8,6 +8,7 @@ var urlModule = require('url');
 var URL = global.URL || urlModule.URL;
 var sucrase = require('sucrase');
 var crypto = require('crypto');
+var originMap = require('./origin-map');
 
 // Cache LRU simples em memória (evita re-transpilar scripts repetidos e economiza RAM da TV)
 var MAX_CACHE_ENTRIES = 80;
@@ -254,7 +255,8 @@ function transpileCSS(css, baseUrl, proxyBase) {
       }
       try {
         var resolved = new URL(u, baseUrl).href;
-        return 'url(' + quote + proxyBase + '/proxy?url=' + encodeURIComponent(resolved) + quote + ')';
+        var targetProxyBase = originMap.getProxyBaseForUrl(resolved, proxyBase);
+        return 'url(' + quote + targetProxyBase + '/proxy?url=' + encodeURIComponent(resolved) + quote + ')';
       } catch (_) {
         return full;
       }

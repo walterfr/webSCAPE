@@ -10,6 +10,31 @@
   var PROXY_BASE = window.__WEBOS_PROXY_BASE__ || 'http://127.0.0.1:8899';
   var TARGET_URL = window.__WEBOS_PROXY_TARGET__ || window.location.href;
 
+  function getProxyBaseForUrl(targetUrl) {
+    var origin = new URL(targetUrl).origin;
+    var first = 0x811c9dc5;
+    var second = 0x9e3779b9;
+    for (var i = 0; i < origin.length; i++) {
+      var code = origin.charCodeAt(i);
+      first = Math.imul(first ^ code, 0x01000193);
+      second = Math.imul(second ^ code, 0x85ebca6b);
+    }
+    var hash = ('00000000' + (first >>> 0).toString(16)).slice(-8) +
+      ('00000000' + (second >>> 0).toString(16)).slice(-8);
+    var port = new URL(PROXY_BASE).port;
+    return 'http://w' + hash + '.localhost' + (port ? ':' + port : '');
+  }
+
+  function isProxyUrl(value) {
+    try {
+      var parsed = new URL(value, window.location.href);
+      return parsed.pathname === '/proxy' && parsed.port === new URL(PROXY_BASE).port &&
+        (parsed.hostname === new URL(PROXY_BASE).hostname || /^w[0-9a-f]{16}\.localhost$/.test(parsed.hostname));
+    } catch (_) {
+      return false;
+    }
+  }
+
   function resolveTargetUrl(inputUrl) {
     if (!inputUrl || typeof inputUrl !== 'string') return inputUrl;
     var trimmed = inputUrl.replace(/&amp;/g, '&').trim();
@@ -24,7 +49,7 @@
     ) {
       return inputUrl;
     }
-    if (trimmed.indexOf(PROXY_BASE) === 0 || trimmed.indexOf('/proxy?url=') === 0) {
+    if (isProxyUrl(trimmed) || trimmed.indexOf('/proxy?url=') === 0) {
       return inputUrl;
     }
     try {
@@ -54,14 +79,14 @@
     ) {
       return inputUrl;
     }
-    if (trimmed.indexOf(PROXY_BASE + '/proxy?') === 0 || trimmed.indexOf('/proxy?url=') === 0) {
+    if (isProxyUrl(trimmed) || trimmed.indexOf('/proxy?url=') === 0) {
       return inputUrl;
     }
     var resolved = resolveTargetUrl(trimmed);
     if (!resolved || resolved.indexOf('http') !== 0) return inputUrl;
     checkMediaUrl(resolved);
     var suffix = typeHint ? '&type=' + encodeURIComponent(typeHint) : '';
-    return PROXY_BASE + '/proxy?url=' + encodeURIComponent(resolved) + suffix;
+    return getProxyBaseForUrl(resolved) + '/proxy?url=' + encodeURIComponent(resolved) + suffix;
   }
 
   function getFormTargetUrl(form) {
@@ -69,7 +94,7 @@
     try {
       var actionUrl = new URL(rawAction, window.location.href);
       var proxyOrigin = new URL(PROXY_BASE).origin;
-      if (actionUrl.origin === proxyOrigin && actionUrl.pathname === '/proxy') {
+      if ((actionUrl.origin === proxyOrigin || isProxyUrl(actionUrl.href)) && actionUrl.pathname === '/proxy') {
         var targetUrl = actionUrl.searchParams.get('url');
         if (targetUrl) return new URL(targetUrl).href;
       }

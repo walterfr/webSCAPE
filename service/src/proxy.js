@@ -1,8 +1,8 @@
 /**
  * Servidor Proxy Reverso Transpilador para LG webOS 5.6.2
- * Compatível com Node.js 8.12.0 (usa apenas http/https/zlib/url nativos).
+ * Compatível com Node.js 8.12.0 (usa módulos nativos do Node).
  * - Usa Accept-Encoding: gzip, deflate (Node 8.12 não possui Brotli nativo)
- * - Ignora erro de Root CA expirado do firmware antigo da TV (Let's Encrypt ISRG Root)
+ * - Valida certificados TLS para proteger conexões HTTPS
  * - Remove X-Frame-Options e CSP
  * - Transpila HTML, JS (ES2024 -> Chrome 68) e CSS em tempo real
  */
@@ -10,6 +10,9 @@
 
 var http = require('http');
 var https = require('https');
+var dns = require('dns');
+var net = require('net');
+var crypto = require('crypto');
 var urlModule = require('url');
 var URL = global.URL || urlModule.URL;
 var zlib = require('zlib');
@@ -19,6 +22,7 @@ var path = require('path');
 var transpiler = require('./transpiler');
 var htmlRewriter = require('./html-rewriter');
 var adblock = require('./adblock');
+var originMap = require('./origin-map');
 
 var USER_AGENTS = {
   desktop: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -28,6 +32,76 @@ var USER_AGENTS = {
 
 var currentUAMode = 'desktop';
 var cookieJar = Object.create(null); // host -> { name: value }
+
+function isPublicAddress(address, family) {
+  if (family === 4) {
+    var octets = address.split('.').map(Number);
+    var a = octets[0];
+    var b = octets[1];
+    var c = octets[2];
+    return !(
+      a === 0 || a === 10 || a === 127 || a >= 224 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && ((b === 0 && c === 0) || b === 168 || (b === 88 && c === 99))) ||
+      (a === 192 && b === 0 && c === 2) ||
+      (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
+      (a === 203 && b === 0 && c === 113)
+    );
+  }
+
+  if (family !== 6) return false;
+  var parts = address.toLowerCase().split(':');
+  var emptyIndex = parts.indexOf('');
+  if (emptyIndex !== -1) {
+    var missing = 8 - parts.filter(Boolean).length;
+    parts.splice.apply(parts, [emptyIndex, parts.lastIndexOf('') - emptyIndex + 1].concat(new Array(missing).fill('0')));
+  }
+  while (parts.length < 8) parts.push('0');
+  var first = parseInt(parts[0] || '0', 16);
+  var second = parseInt(parts[1] || '0', 16);
+  return first >= 0x2000 && first <= 0x3fff &&
+    !(first === 0x2001 && second <= 0x01ff) &&
+    !(first === 0x2001 && second === 0x0db8) &&
+    first !== 0x2002 &&
+    !(first === 0x3fff && second < 0x1000);
+}
+
+function resolvePublicAddress(host, callback) {
+  var hostname = host.replace(/^\[|\]$/g, '').toLowerCase();
+  if (!hostname || hostname === 'localhost' || /\.(localhost|local|internal|test|invalid|example)$/.test(hostname) || hostname.indexOf('.') === -1) {
+    return callback(new Error('Destino local ou reservado bloqueado'));
+  }
+
+  var literalFamily = net.isIP(hostname);
+  var resolved = function (err, addresses) {
+    if (err || !addresses || !addresses.length) {
+      return callback(err || new Error('Não foi possível resolver o destino'));
+    }
+    for (var i = 0; i < addresses.length; i++) {
+      if (!isPublicAddress(addresses[i].address, addresses[i].family)) {
+        return callback(new Error('Destino local ou reservado bloqueado'));
+      }
+    }
+    var preferred = addresses.filter(function (item) { return item.family === 4; })[0] || addresses[0];
+    callback(null, preferred.address, preferred.family);
+  };
+
+  if (literalFamily) return resolved(null, [{ address: hostname, family: literalFamily }]);
+  dns.lookup(hostname, { all: true }, resolved);
+}
+
+function hasValidControlToken(received, expected) {
+  if (typeof received !== 'string' || !expected || Buffer.byteLength(received) !== Buffer.byteLength(expected)) return false;
+  return crypto.timingSafeEqual(Buffer.from(received), Buffer.from(expected));
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, function (char) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char];
+  });
+}
 
 // Embute os scripts de cliente em memória na inicialização
 var POLYFILLS_CODE = fs.readFileSync(
@@ -69,9 +143,11 @@ function getProxiedTargetUrl(rawUrl, proxyBase) {
   if (!rawUrl) return null;
   var parsedProxyUrl = urlModule.parse(rawUrl, true);
   var parsedProxyBase = urlModule.parse(proxyBase);
+  var parsedOrigin = parsedProxyUrl.protocol + '//' + parsedProxyUrl.host;
+  var isProxyOrigin = parsedProxyUrl.protocol === parsedProxyBase.protocol && parsedProxyUrl.host === parsedProxyBase.host;
+  if (!isProxyOrigin) isProxyOrigin = !!originMap.getOriginalOrigin(parsedOrigin);
   if (
-    parsedProxyUrl.protocol !== parsedProxyBase.protocol ||
-    parsedProxyUrl.host !== parsedProxyBase.host ||
+    !isProxyOrigin ||
     parsedProxyUrl.pathname !== '/proxy' ||
     !parsedProxyUrl.query ||
     !parsedProxyUrl.query.url
@@ -96,11 +172,21 @@ function getUrlOrigin(targetUrl) {
   }
 }
 
-function setCorsHeaders(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', '*');
-  res.setHeader('Access-Control-Expose-Headers', '*');
+function setCorsHeaders(res, origin, proxyBase, upstreamResponse, targetUrl) {
+  var proxyOrigin = getUrlOrigin(proxyBase);
+  var allowed = origin === 'null' || origin === proxyOrigin;
+  var sourceOrigin = originMap.getOriginalOrigin(origin);
+  if (sourceOrigin && targetUrl && upstreamResponse) {
+    var sourceHeader = upstreamResponse.headers['access-control-allow-origin'];
+    allowed = sourceHeader === '*' || sourceHeader === sourceOrigin || sourceOrigin === getUrlOrigin(targetUrl);
+  }
+  if (!allowed) return;
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+  if (origin === 'null' || origin === proxyOrigin) {
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-WebOS-Control-Token');
+  }
 }
 
 function fetchUpstream(targetUrl, req, redirectsLeft, proxyBase, callback) {
@@ -110,6 +196,13 @@ function fetchUpstream(targetUrl, req, redirectsLeft, proxyBase, callback) {
   } catch (e) {
     return callback(new Error('URL inválida: ' + targetUrl));
   }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return callback(new Error('Protocolo bloqueado'));
+  }
+
+  resolvePublicAddress(parsed.hostname, function (addressError, resolvedAddress, resolvedFamily) {
+    if (addressError) return callback(addressError);
 
   var isHttps = parsed.protocol === 'https:';
   var transport = isHttps ? https : http;
@@ -132,13 +225,25 @@ function fetchUpstream(targetUrl, req, redirectsLeft, proxyBase, callback) {
   if (req.headers['origin']) {
     var origin = req.headers['origin'];
     var proxyOrigin = getUrlOrigin(proxyBase);
-    if (proxyOrigin && origin === proxyOrigin) {
+    var mappedOrigin = originMap.getOriginalOrigin(origin);
+    if (mappedOrigin) {
+      origin = mappedOrigin;
+    } else if (proxyOrigin && origin === proxyOrigin) {
       origin = getUrlOrigin(upstreamReferer || targetUrl) || origin;
     }
     headers['Origin'] = origin;
   }
 
-  var savedCookies = getCookieHeader(parsed.hostname);
+  var sourceOrigin = originMap.getOriginalOrigin(req.headers.origin);
+  var refererOrigin = null;
+  try {
+    if (upstreamReferer) refererOrigin = getUrlOrigin(upstreamReferer);
+  } catch (_) {}
+  var isTopLevelDocument = req._webosTypeHint === 'doc' &&
+    /text\/html/i.test(req.headers.accept || '') && !sourceOrigin;
+  var mayUseCookies = refererOrigin === getUrlOrigin(targetUrl) || isTopLevelDocument ||
+    (!req.headers.origin && !upstreamReferer && req._webosTypeHint === 'doc');
+  var savedCookies = mayUseCookies ? getCookieHeader(parsed.hostname) : '';
   if (savedCookies) {
     headers['Cookie'] = savedCookies;
   }
@@ -152,7 +257,9 @@ function fetchUpstream(targetUrl, req, redirectsLeft, proxyBase, callback) {
       headerKey === 'content-type' ||
       headerKey === 'content-length' ||
       headerKey === 'authorization' ||
-      headerKey === 'range'
+      headerKey === 'range' ||
+      headerKey === 'access-control-request-method' ||
+      headerKey === 'access-control-request-headers'
     ) {
       headers[headerKey] = req.headers[reqKeys[k]];
     }
@@ -165,9 +272,12 @@ function fetchUpstream(targetUrl, req, redirectsLeft, proxyBase, callback) {
     path: parsed.pathname + parsed.search,
     method: req.method || 'GET',
     headers: headers,
+    lookup: function (hostname, options, done) {
+      if (typeof options === 'function') done = options;
+      done(null, resolvedAddress, resolvedFamily);
+    },
     timeout: 20000,
-    // ponytail: rejectUnauthorized=false contorna certificados raiz expirados no firmware webOS 5.6.2 (DST Root CA X3)
-    rejectUnauthorized: false
+    rejectUnauthorized: true
   };
 
   // Essencial para Node 8.12 no webOS: define SNI (Server Name Indication) para sites HTTPS modernos
@@ -188,7 +298,8 @@ function fetchUpstream(targetUrl, req, redirectsLeft, proxyBase, callback) {
       } catch (_) {
         nextUrl = upRes.headers.location;
       }
-      return fetchUpstream(nextUrl, { method: 'GET', headers: req.headers }, redirectsLeft - 1, proxyBase, callback);
+      var redirectedReq = { method: 'GET', headers: req.headers, _webosTypeHint: req._webosTypeHint };
+      return fetchUpstream(nextUrl, redirectedReq, redirectsLeft - 1, proxyBase, callback);
     }
 
     callback(null, upRes, targetUrl);
@@ -208,6 +319,7 @@ function fetchUpstream(targetUrl, req, redirectsLeft, proxyBase, callback) {
   } else {
     upReq.end();
   }
+  });
 }
 
 function decodeStream(upRes) {
@@ -225,17 +337,18 @@ function createProxyServer(port, host) {
   var listenPort = port || 8899;
   var listenHost = host || '127.0.0.1';
   var proxyBase = 'http://' + listenHost + ':' + listenPort;
+  var controlToken = crypto.randomBytes(32).toString('hex');
 
   var server = http.createServer(function (req, res) {
-    setCorsHeaders(res);
-
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      return res.end();
-    }
+    setCorsHeaders(res, req.headers.origin, proxyBase);
 
     var parsedReq = urlModule.parse(req.url, true);
     var pathname = parsedReq.pathname || '/';
+
+    if (req.method === 'OPTIONS' && pathname !== '/proxy') {
+      res.writeHead(204);
+      return res.end();
+    }
 
     // 1. Health & Status Endpoint
     if (pathname === '/health') {
@@ -251,6 +364,10 @@ function createProxyServer(port, host) {
 
     // 2. Config Endpoint (AdBlock toggle, User-Agent mode, Limpar Cache/Cookies)
     if (pathname === '/config' && req.method === 'POST') {
+      if (!hasValidControlToken(req.headers['x-webos-control-token'], controlToken)) {
+        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+        return res.end(JSON.stringify({ ok: false, error: 'Acesso não autorizado' }));
+      }
       var bodyChunks = [];
       req.on('data', function (c) { bodyChunks.push(c); });
       req.on('end', function () {
@@ -301,9 +418,49 @@ function createProxyServer(port, host) {
       var targetUrl = parsedReq.query && parsedReq.query.url;
       var typeHint = (parsedReq.query && parsedReq.query.type) || '';
 
-      if (!targetUrl) {
+      if (typeof targetUrl !== 'string' || !targetUrl) {
         res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
         return res.end('Parâmetro ?url= obrigatório');
+      }
+
+      var target;
+      try {
+        target = new URL(targetUrl);
+      } catch (_) {
+        res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+        return res.end('URL inválida');
+      }
+      if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+        res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+        return res.end('Protocolo bloqueado');
+      }
+
+      var requestProxyBase = 'http://' + (req.headers.host || (listenHost + ':' + listenPort));
+      var targetProxyBase = originMap.getProxyBaseForUrl(target.href, proxyBase);
+      if (requestProxyBase === proxyBase && typeHint === 'doc' && req.method !== 'OPTIONS') {
+        res.writeHead(302, { Location: targetProxyBase + '/proxy?url=' + encodeURIComponent(target.href) + '&type=doc' });
+        return res.end();
+      }
+      if (requestProxyBase !== targetProxyBase) {
+        res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+        return res.end('Origem do proxy não corresponde ao destino');
+      }
+
+      if (req.method === 'OPTIONS') {
+        req._webosTypeHint = typeHint;
+        fetchUpstream(target.href, req, 5, requestProxyBase, function (err, upRes) {
+          if (err) {
+            res.writeHead(502);
+            return res.end();
+          }
+          ['access-control-allow-methods', 'access-control-allow-headers', 'access-control-allow-credentials', 'access-control-max-age'].forEach(function (header) {
+            if (upRes.headers[header]) res.setHeader(header, upRes.headers[header]);
+          });
+          setCorsHeaders(res, req.headers.origin, proxyBase, upRes, target.href);
+          res.writeHead(upRes.statusCode || 204);
+          return res.end();
+        });
+        return;
       }
 
       if (adblock.shouldBlock(targetUrl)) {
@@ -315,16 +472,23 @@ function createProxyServer(port, host) {
         return res.end();
       }
 
-      fetchUpstream(targetUrl, req, 5, proxyBase, function (err, upRes, finalUrl) {
+      req._webosTypeHint = typeHint;
+      fetchUpstream(targetUrl, req, 5, requestProxyBase, function (err, upRes, finalUrl) {
         if (err) {
           res.writeHead(502, { 'Content-Type': 'text/html; charset=utf-8' });
           return res.end(
             '<!DOCTYPE html><html><body style="background:#12151e;color:#e2e8f0;font-family:sans-serif;padding:40px;">' +
             '<h2>Não foi possível carregar a página</h2>' +
-            '<p style="color:#94a3b8">' + String(err.message) + '</p>' +
-            '<p>URL: <code>' + String(targetUrl) + '</code></p>' +
+            '<p style="color:#94a3b8">' + escapeHtml(err.message) + '</p>' +
+            '<p>URL: <code>' + escapeHtml(targetUrl) + '</code></p>' +
             '</body></html>'
           );
+        }
+
+        var finalProxyBase = originMap.getProxyBaseForUrl(finalUrl, proxyBase);
+        if (typeHint === 'doc' && finalProxyBase !== requestProxyBase) {
+          res.writeHead(302, { Location: finalProxyBase + '/proxy?url=' + encodeURIComponent(finalUrl) + '&type=doc' });
+          return res.end();
         }
 
         var contentType = String(upRes.headers['content-type'] || '').toLowerCase();
@@ -348,7 +512,8 @@ function createProxyServer(port, host) {
           'content-encoding': true,
           'content-length': true,
           'transfer-encoding': true,
-          'set-cookie': true
+          'set-cookie': true,
+          'access-control-allow-origin': true
         };
 
         var headerKeys = Object.keys(upRes.headers);
@@ -360,7 +525,7 @@ function createProxyServer(port, host) {
             } catch (_) {}
           }
         }
-        setCorsHeaders(res);
+        setCorsHeaders(res, req.headers.origin, proxyBase, upRes, finalUrl);
 
         // Se for mídia binária, imagem, fonte ou vídeo, faz stream direto sem carregar em RAM
         if (!isHTML && !isJS && !isCSS) {
@@ -391,13 +556,13 @@ function createProxyServer(port, host) {
           var outputText = rawText;
 
           if (isHTML && (typeHint !== 'xhr' || contentType.indexOf('text/html') !== -1)) {
-            outputText = htmlRewriter.rewriteHTML(rawText, finalUrl, proxyBase);
+            outputText = htmlRewriter.rewriteHTML(rawText, finalUrl, requestProxyBase);
             res.setHeader('Content-Type', 'text/html; charset=utf-8');
           } else if (isJS) {
             outputText = transpiler.transpileJS(rawText, finalUrl);
             res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
           } else if (isCSS) {
-            outputText = transpiler.transpileCSS(rawText, finalUrl, proxyBase);
+            outputText = transpiler.transpileCSS(rawText, finalUrl, requestProxyBase);
             res.setHeader('Content-Type', 'text/css; charset=utf-8');
           }
 
@@ -416,6 +581,7 @@ function createProxyServer(port, host) {
 
   return {
     server: server,
+    controlToken: controlToken,
     start: function (cb) {
       server.listen(listenPort, listenHost, function () {
         if (cb) cb(null, { port: listenPort, host: listenHost, proxyBase: proxyBase });
