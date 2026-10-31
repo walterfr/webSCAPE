@@ -25,11 +25,19 @@
     return 'http://w' + hash + '.localhost' + (port ? ':' + port : '');
   }
 
-  function isProxyUrl(value) {
+  function isProxyEndpoint(value) {
     try {
       var parsed = new URL(value, window.location.href);
       return parsed.pathname === '/proxy' && parsed.port === new URL(PROXY_BASE).port &&
         (parsed.hostname === new URL(PROXY_BASE).hostname || /^w[0-9a-f]{16}\.localhost$/.test(parsed.hostname));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isProxyUrl(value) {
+    try {
+      return isProxyEndpoint(value) && !!new URL(value, window.location.href).searchParams.get('url');
     } catch (_) {
       return false;
     }
@@ -52,6 +60,7 @@
     if (isProxyUrl(trimmed) || trimmed.indexOf('/proxy?url=') === 0) {
       return inputUrl;
     }
+    if (isProxyEndpoint(trimmed)) return TARGET_URL;
     try {
       // Se o script tentou usar a origem do proxy (127.0.0.1:8899/caminho), corrige para a origem real do site
       if (trimmed.indexOf(window.location.origin) === 0 && trimmed.indexOf('/proxy?') === -1) {
@@ -94,9 +103,10 @@
     try {
       var actionUrl = new URL(rawAction, window.location.href);
       var proxyOrigin = new URL(PROXY_BASE).origin;
-      if ((actionUrl.origin === proxyOrigin || isProxyUrl(actionUrl.href)) && actionUrl.pathname === '/proxy') {
+      if ((actionUrl.origin === proxyOrigin || isProxyEndpoint(actionUrl.href)) && actionUrl.pathname === '/proxy') {
         var targetUrl = actionUrl.searchParams.get('url');
         if (targetUrl) return new URL(targetUrl).href;
+        return TARGET_URL;
       }
       return resolveTargetUrl(rawAction);
     } catch (_) {
@@ -280,6 +290,12 @@
     if (!el || !el.getAttribute) return;
     var rawHref = el.getAttribute('href');
     if (!rawHref || rawHref.charAt(0) === '#' || rawHref.indexOf('javascript:') === 0) return;
+
+    if (isProxyEndpoint(rawHref) && !isProxyUrl(rawHref)) {
+      e.preventDefault();
+      window.location.href = toProxyUrl(TARGET_URL, 'doc');
+      return;
+    }
 
     var resolved = resolveTargetUrl(rawHref);
     if (el.getAttribute('target') === '_blank') {

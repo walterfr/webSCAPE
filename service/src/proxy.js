@@ -415,6 +415,7 @@ function createProxyServer(port, host) {
 
     // 4. Endpoint principal do Proxy: /proxy?url=...
     if (pathname === '/proxy') {
+      var requestProxyBase = 'http://' + (req.headers.host || (listenHost + ':' + listenPort));
       var routeQuery = parsedReq.query || {};
       var urlValues = Array.isArray(routeQuery.url) ? routeQuery.url.slice() : [routeQuery.url];
       var targetUrl = urlValues.shift();
@@ -430,6 +431,11 @@ function createProxyServer(port, host) {
           forwardedParams.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(values[i])));
         }
       });
+
+      if (typeof targetUrl !== 'string' || !targetUrl) {
+        targetUrl = originMap.getLastDocumentTarget(requestProxyBase);
+        if (targetUrl && !typeHint) typeHint = 'doc';
+      }
 
       if (forwardedParams.length && typeof targetUrl === 'string') {
         var hashIndex = targetUrl.indexOf('#');
@@ -456,7 +462,6 @@ function createProxyServer(port, host) {
         return res.end('Protocolo bloqueado');
       }
 
-      var requestProxyBase = 'http://' + (req.headers.host || (listenHost + ':' + listenPort));
       var targetProxyBase = originMap.getProxyBaseForUrl(target.href, proxyBase);
       if (requestProxyBase === proxyBase && typeHint === 'doc' && req.method !== 'OPTIONS') {
         res.writeHead(302, { Location: targetProxyBase + '/proxy?url=' + encodeURIComponent(target.href) + '&type=doc' });
@@ -514,6 +519,7 @@ function createProxyServer(port, host) {
 
         var contentType = String(upRes.headers['content-type'] || '').toLowerCase();
         var isHTML = typeHint === 'doc' || contentType.indexOf('text/html') !== -1 || contentType.indexOf('application/xhtml+xml') !== -1;
+        if (typeHint === 'doc' && isHTML) originMap.setLastDocumentTarget(requestProxyBase, finalUrl);
         var isJS =
           typeHint === 'js' ||
           contentType.indexOf('javascript') !== -1 ||
