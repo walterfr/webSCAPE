@@ -415,8 +415,29 @@ function createProxyServer(port, host) {
 
     // 4. Endpoint principal do Proxy: /proxy?url=...
     if (pathname === '/proxy') {
-      var targetUrl = parsedReq.query && parsedReq.query.url;
-      var typeHint = (parsedReq.query && parsedReq.query.type) || '';
+      var routeQuery = parsedReq.query || {};
+      var urlValues = Array.isArray(routeQuery.url) ? routeQuery.url.slice() : [routeQuery.url];
+      var targetUrl = urlValues.shift();
+      var typeValues = Array.isArray(routeQuery.type) ? routeQuery.type.slice() : [routeQuery.type];
+      var routeTypes = ['doc', 'js', 'css', 'raw', 'xhr'];
+      var typeHint = routeTypes.indexOf(typeValues[0]) !== -1 ? typeValues.shift() : '';
+      var forwardedParams = [];
+
+      Object.keys(routeQuery).forEach(function (key) {
+        var values = key === 'url' ? urlValues : key === 'type' ? typeValues :
+          (Array.isArray(routeQuery[key]) ? routeQuery[key] : [routeQuery[key]]);
+        for (var i = 0; i < values.length; i++) {
+          forwardedParams.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(values[i])));
+        }
+      });
+
+      if (forwardedParams.length && typeof targetUrl === 'string') {
+        var hashIndex = targetUrl.indexOf('#');
+        var fragment = hashIndex === -1 ? '' : targetUrl.slice(hashIndex);
+        var targetWithoutFragment = hashIndex === -1 ? targetUrl : targetUrl.slice(0, hashIndex);
+        var querySeparator = targetWithoutFragment.indexOf('?') === -1 ? '?' : /[?&]$/.test(targetWithoutFragment) ? '' : '&';
+        targetUrl = targetWithoutFragment + querySeparator + forwardedParams.join('&') + fragment;
+      }
 
       if (typeof targetUrl !== 'string' || !targetUrl) {
         res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
