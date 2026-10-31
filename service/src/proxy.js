@@ -68,8 +68,15 @@ function isPublicAddress(address, family) {
     !(first === 0x3fff && second < 0x1000);
 }
 
-function resolvePublicAddress(host, callback) {
+function resolvePublicAddress(host, allowLocalTargets, callback) {
+  if (typeof allowLocalTargets === 'function') {
+    callback = allowLocalTargets;
+    allowLocalTargets = false;
+  }
   var hostname = host.replace(/^\[|\]$/g, '').toLowerCase();
+  if (allowLocalTargets && (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1')) {
+    return callback(null, hostname === '::1' ? '::1' : '127.0.0.1', hostname === '::1' ? 6 : 4);
+  }
   if (!hostname || hostname === 'localhost' || /\.(localhost|local|internal|test|invalid|example)$/.test(hostname) || hostname.indexOf('.') === -1) {
     return callback(new Error('Destino local ou reservado bloqueado'));
   }
@@ -80,7 +87,7 @@ function resolvePublicAddress(host, callback) {
       return callback(err || new Error('Não foi possível resolver o destino'));
     }
     for (var i = 0; i < addresses.length; i++) {
-      if (!isPublicAddress(addresses[i].address, addresses[i].family)) {
+      if (!allowLocalTargets && !isPublicAddress(addresses[i].address, addresses[i].family)) {
         return callback(new Error('Destino local ou reservado bloqueado'));
       }
     }
@@ -139,13 +146,18 @@ function getCookieHeader(host) {
   return pairs.join('; ');
 }
 
-function getProxiedTargetUrl(rawUrl, proxyBase) {
+function getProxiedTargetUrl(rawUrl, proxyBase, rootProxyBase) {
   if (!rawUrl) return null;
   var parsedProxyUrl = urlModule.parse(rawUrl, true);
   var parsedProxyBase = urlModule.parse(proxyBase);
   var parsedOrigin = parsedProxyUrl.protocol + '//' + parsedProxyUrl.host;
   var isProxyOrigin = parsedProxyUrl.protocol === parsedProxyBase.protocol && parsedProxyUrl.host === parsedProxyBase.host;
+  if (!isProxyOrigin && rootProxyBase) {
+    var parsedRoot = urlModule.parse(rootProxyBase);
+    isProxyOrigin = parsedProxyUrl.protocol === parsedRoot.protocol && parsedProxyUrl.host === parsedRoot.host;
+  }
   if (!isProxyOrigin) isProxyOrigin = !!originMap.getOriginalOrigin(parsedOrigin);
+  if (!isProxyOrigin && /^w[0-9a-f]{16}\.localhost$/.test(parsedProxyUrl.hostname)) isProxyOrigin = true;
   if (
     !isProxyOrigin ||
     parsedProxyUrl.pathname !== '/proxy' ||
@@ -201,7 +213,8 @@ function fetchUpstream(targetUrl, req, redirectsLeft, proxyBase, callback) {
     return callback(new Error('Protocolo bloqueado'));
   }
 
-  resolvePublicAddress(parsed.hostname, function (addressError, resolvedAddress, resolvedFamily) {
+  var allowLocal = !!(req && req._allowLocalTargets);
+  resolvePublicAddress(parsed.hostname, allowLocal, function (addressError, resolvedAddress, resolvedFamily) {
     if (addressError) return callback(addressError);
 
   var isHttps = parsed.protocol === 'https:';
@@ -215,7 +228,7 @@ function fetchUpstream(targetUrl, req, redirectsLeft, proxyBase, callback) {
     'Accept-Encoding': 'gzip, deflate'
   };
 
-  var upstreamReferer = getProxiedTargetUrl(req.headers['referer'], proxyBase);
+  var upstreamReferer = getProxiedTargetUrl(req.headers['referer'], proxyBase, req._rootProxyBase);
   if (upstreamReferer) {
     headers['Referer'] = upstreamReferer;
   } else if (req.headers['referer']) {
@@ -225,10 +238,11 @@ function fetchUpstream(targetUrl, req, redirectsLeft, proxyBase, callback) {
   if (req.headers['origin']) {
     var origin = req.headers['origin'];
     var proxyOrigin = getUrlOrigin(proxyBase);
+    var rootOrigin = req._rootProxyBase ? getUrlOrigin(req._rootProxyBase) : null;
     var mappedOrigin = originMap.getOriginalOrigin(origin);
     if (mappedOrigin) {
       origin = mappedOrigin;
-    } else if (proxyOrigin && origin === proxyOrigin) {
+    } else if ((proxyOrigin && origin === proxyOrigin) || (rootOrigin && origin === rootOrigin)) {
       origin = getUrlOrigin(upstreamReferer || targetUrl) || origin;
     }
     headers['Origin'] = origin;
@@ -333,13 +347,17 @@ function decodeStream(upRes) {
   return upRes;
 }
 
-function createProxyServer(port, host) {
-  var listenPort = port || 8899;
-  var listenHost = host || '127.0.0.1';
+function createProxyServer(port, host, options) {
+  var opts = (typeof port === 'object' && port) ? port : (typeof options === 'object' && options ? options : {});
+  var listenPort = (typeof port === 'number' ? port : opts.port) || 8899;
+  var listenHost = (typeof host === 'string' ? host : opts.host) || '127.0.0.1';
+  var allowLocalTargets = opts.allowLocalTargets !== undefined ? !!opts.allowLocalTargets : (process.env.NODE_ENV === 'test');
   var proxyBase = 'http://' + listenHost + ':' + listenPort;
   var controlToken = crypto.randomBytes(32).toString('hex');
 
   var server = http.createServer(function (req, res) {
+    req._allowLocalTargets = allowLocalTargets;
+    req._rootProxyBase = proxyBase;
     setCorsHeaders(res, req.headers.origin, proxyBase);
 
     var parsedReq = urlModule.parse(req.url, true);
@@ -415,8 +433,35 @@ function createProxyServer(port, host) {
 
     // 4. Endpoint principal do Proxy: /proxy?url=...
     if (pathname === '/proxy') {
-      var targetUrl = parsedReq.query && parsedReq.query.url;
-      var typeHint = (parsedReq.query && parsedReq.query.type) || '';
+      var requestProxyBase = 'http://' + (req.headers.host || (listenHost + ':' + listenPort));
+      var routeQuery = parsedReq.query || {};
+      var urlValues = Array.isArray(routeQuery.url) ? routeQuery.url.slice() : [routeQuery.url];
+      var targetUrl = urlValues.shift();
+      var typeValues = Array.isArray(routeQuery.type) ? routeQuery.type.slice() : [routeQuery.type];
+      var routeTypes = ['doc', 'js', 'css', 'raw', 'xhr'];
+      var typeHint = routeTypes.indexOf(typeValues[0]) !== -1 ? typeValues.shift() : '';
+      var forwardedParams = [];
+
+      Object.keys(routeQuery).forEach(function (key) {
+        var values = key === 'url' ? urlValues : key === 'type' ? typeValues :
+          (Array.isArray(routeQuery[key]) ? routeQuery[key] : [routeQuery[key]]);
+        for (var i = 0; i < values.length; i++) {
+          forwardedParams.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(values[i])));
+        }
+      });
+
+      if (typeof targetUrl !== 'string' || !targetUrl) {
+        targetUrl = originMap.getLastDocumentTarget(requestProxyBase);
+        if (targetUrl && !typeHint) typeHint = 'doc';
+      }
+
+      if (forwardedParams.length && typeof targetUrl === 'string') {
+        var hashIndex = targetUrl.indexOf('#');
+        var fragment = hashIndex === -1 ? '' : targetUrl.slice(hashIndex);
+        var targetWithoutFragment = hashIndex === -1 ? targetUrl : targetUrl.slice(0, hashIndex);
+        var querySeparator = targetWithoutFragment.indexOf('?') === -1 ? '?' : /[?&]$/.test(targetWithoutFragment) ? '' : '&';
+        targetUrl = targetWithoutFragment + querySeparator + forwardedParams.join('&') + fragment;
+      }
 
       if (typeof targetUrl !== 'string' || !targetUrl) {
         res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -435,7 +480,6 @@ function createProxyServer(port, host) {
         return res.end('Protocolo bloqueado');
       }
 
-      var requestProxyBase = 'http://' + (req.headers.host || (listenHost + ':' + listenPort));
       var targetProxyBase = originMap.getProxyBaseForUrl(target.href, proxyBase);
       if (requestProxyBase === proxyBase && typeHint === 'doc' && req.method !== 'OPTIONS') {
         res.writeHead(302, { Location: targetProxyBase + '/proxy?url=' + encodeURIComponent(target.href) + '&type=doc' });
@@ -493,6 +537,7 @@ function createProxyServer(port, host) {
 
         var contentType = String(upRes.headers['content-type'] || '').toLowerCase();
         var isHTML = typeHint === 'doc' || contentType.indexOf('text/html') !== -1 || contentType.indexOf('application/xhtml+xml') !== -1;
+        if (typeHint === 'doc' && isHTML) originMap.setLastDocumentTarget(requestProxyBase, finalUrl);
         var isJS =
           typeHint === 'js' ||
           contentType.indexOf('javascript') !== -1 ||

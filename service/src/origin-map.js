@@ -1,6 +1,7 @@
 'use strict';
 
 var originByProxyHost = Object.create(null);
+var lastDocumentByProxyHost = Object.create(null);
 
 function hashOrigin(origin) {
   var first = 0x811c9dc5;
@@ -26,7 +27,17 @@ function getOriginalOrigin(proxyOrigin) {
   return originByProxyHost[proxyOrigin] || null;
 }
 
+function setLastDocumentTarget(proxyBase, targetUrl) {
+  if (originByProxyHost[proxyBase]) lastDocumentByProxyHost[proxyBase] = targetUrl;
+}
+
+function getLastDocumentTarget(proxyBase) {
+  return lastDocumentByProxyHost[proxyBase] || null;
+}
+
 module.exports = {
   getProxyBaseForUrl: getProxyBaseForUrl,
-  getOriginalOrigin: getOriginalOrigin
+  getOriginalOrigin: getOriginalOrigin,
+  setLastDocumentTarget: setLastDocumentTarget,
+  getLastDocumentTarget: getLastDocumentTarget
 };
