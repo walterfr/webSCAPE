@@ -452,3 +452,89 @@ html, body {
   z-index: 999;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65);
 }
+
+/* Modo D-Pad vs Magic Remote Pointer */
+body.dpad-active .focusable:focus {
+  outline: none;
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.6) !important;
+  transform: scale(1.04);
+}
+
+/* Modal de Ações Rápidas (Glass/Overlay estilo Wren) */
+.quick-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1920px;
+  height: 1080px;
+  background: rgba(11, 14, 20, 0.85);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quick-card {
+  width: 860px;
+  background: linear-gradient(180deg, #182234 0%, #0f1623 100%);
+  border: 2px solid #38bdf8;
+  border-radius: 20px;
+  padding: 36px 40px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.8);
+}
+
+.quick-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  border-bottom: 1px solid #26334a;
+  padding-bottom: 16px;
+}
+
+.quick-title {
+  font-size: 32px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.quick-subtitle {
+  font-size: 18px;
+  color: #94a3b8;
+}
+
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.quick-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  height: 130px;
+  border-radius: 14px;
+  margin-right: 0;
+}
+
+.qa-icon {
+  font-size: 36px;
+  margin-bottom: 10px;
+}
+
+.qa-label {
+  font-size: 18px;
+  text-align: center;
+}
+
+.quick-close-btn {
+  width: 100%;
+  padding: 14px;
+  font-size: 20px;
+  margin-right: 0;
+}

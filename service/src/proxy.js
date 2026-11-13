@@ -24,6 +24,24 @@ var htmlRewriter = require('./html-rewriter');
 var adblock = require('./adblock');
 var originMap = require('./origin-map');
 
+var caBundle = null;
+(function loadCaBundle() {
+  var candidatePaths = [
+    path.join(__dirname, 'certs', 'cacert.pem'),
+    path.join(__dirname, '..', 'certs', 'cacert.pem'),
+    path.join(process.cwd(), 'service', 'certs', 'cacert.pem'),
+    path.join(process.cwd(), 'certs', 'cacert.pem')
+  ];
+  for (var i = 0; i < candidatePaths.length; i++) {
+    try {
+      if (fs.existsSync(candidatePaths[i])) {
+        caBundle = fs.readFileSync(candidatePaths[i], 'utf8');
+        break;
+      }
+    } catch (_) {}
+  }
+})();
+
 var USER_AGENTS = {
   desktop: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
   mobile: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
@@ -298,6 +316,9 @@ function fetchUpstream(targetUrl, req, redirectsLeft, proxyBase, callback) {
   if (isHttps) {
     options.servername = parsed.hostname;
     options.ciphers = 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-SHA256:HIGH:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!SRP:!CAMELLIA';
+    if (caBundle) {
+      options.ca = caBundle;
+    }
   }
 
   var upReq = transport.request(options, function (upRes) {

@@ -25,9 +25,10 @@
 
       <div class="remote-hints">
         <span class="hint"><i class="dot red"></i> Barra</span>
-        <span class="hint"><i class="dot green"></i> Zoom</span>
-        <span class="hint"><i class="dot yellow"></i> AdBlock</span>
-        <span class="hint"><i class="dot blue"></i> Modo UA</span>
+        <span class="hint"><i class="dot green"></i> Início</span>
+        <span class="hint"><i class="dot yellow"></i> Ações</span>
+        <span class="hint"><i class="dot blue"></i> + Aba</span>
+        <span class="hint">CH ± Abas</span>
       </div>
     </div>
 
@@ -105,6 +106,43 @@
       <button id="btn-close-player" class="tv-btn danger-btn focusable">✕ Fechar Player (Voltar)</button>
     </div>
     <video id="native-video-el" class="native-video" controls autoplay preload="auto"></video>
+  </div>
+
+  <!-- Modal de Ações Rápidas (Segurar OK ou Botão Amarelo - Estilo Wren) -->
+  <div id="quick-actions-modal" class="quick-modal hidden">
+    <div class="quick-card">
+      <div class="quick-header">
+        <h2 class="quick-title">⚡ Ações Rápidas</h2>
+        <span class="quick-subtitle">Segurar OK / Botão Amarelo</span>
+      </div>
+      <div class="quick-grid">
+        <button id="qa-reload" class="tv-btn quick-btn focusable">
+          <span class="qa-icon">↻</span>
+          <span class="qa-label">Recarregar</span>
+        </button>
+        <button id="qa-zoom" class="tv-btn quick-btn focusable">
+          <span class="qa-icon">🔍</span>
+          <span class="qa-label">Zoom: <strong id="qa-zoom-val">100%</strong></span>
+        </button>
+        <button id="qa-adblock" class="tv-btn quick-btn focusable">
+          <span class="qa-icon">🛡️</span>
+          <span class="qa-label">AdBlock: <strong id="qa-adblock-val">ON</strong></span>
+        </button>
+        <button id="qa-ua" class="tv-btn quick-btn focusable">
+          <span class="qa-icon">🖥️</span>
+          <span class="qa-label">Modo UA: <strong id="qa-ua-val">Desktop</strong></span>
+        </button>
+        <button id="qa-home" class="tv-btn quick-btn focusable">
+          <span class="qa-icon">⌂</span>
+          <span class="qa-label">Página Inicial</span>
+        </button>
+        <button id="qa-clear" class="tv-btn quick-btn focusable">
+          <span class="qa-icon">🗑️</span>
+          <span class="qa-label">Limpar Sessão</span>
+        </button>
+      </div>
+      <button id="qa-close" class="tv-btn danger-btn quick-close-btn focusable">✕ Fechar (Voltar)</button>
+    </div>
   </div>
 
   <!-- Toast de Notificação -->

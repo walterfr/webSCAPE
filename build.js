@@ -53,6 +53,12 @@ async function runBuild() {
     path.join(ROOT, 'service', 'src', 'client-injected'),
     path.join(DIST_SVC, 'client-injected')
   );
+  if (fs.existsSync(path.join(ROOT, 'service', 'certs'))) {
+    copyDirRecursive(
+      path.join(ROOT, 'service', 'certs'),
+      path.join(DIST_SVC, 'certs')
+    );
+  }
 
   console.log('3. Compilando JS Service (Sucrase + Proxy) para Node.js 8.12.0 (webOS 5.6.2)...');
   await esbuild.build({

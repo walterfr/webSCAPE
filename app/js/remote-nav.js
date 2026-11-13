@@ -74,55 +74,84 @@
     }
   }
 
+  var okTimer = null;
+  var longPressTriggered = false;
+
+  function dispatchKey(code, altKey, handlers, e) {
+    // 1. Botão Voltar (LG Back 461 ou Esc 27)
+    if (code === KEY_BACK || code === 27) {
+      if (e) e.preventDefault();
+      if (window.NeoNativePlayer && window.NeoNativePlayer.isOpen()) {
+        window.NeoNativePlayer.close();
+        return;
+      }
+      if (handlers.onBack) handlers.onBack();
+      return;
+    }
+
+    // 2. Teclas Coloridas do Controle LG
+    if (code === KEY_RED || (altKey && code === 49)) {
+      if (e) e.preventDefault();
+      if (handlers.onRedButton) handlers.onRedButton();
+      return;
+    }
+    if (code === KEY_GREEN || (altKey && code === 50)) {
+      if (e) e.preventDefault();
+      if (handlers.onGreenButton) handlers.onGreenButton();
+      return;
+    }
+    if (code === KEY_YELLOW || (altKey && code === 51)) {
+      if (e) e.preventDefault();
+      if (handlers.onYellowButton) handlers.onYellowButton();
+      return;
+    }
+    if (code === KEY_BLUE || (altKey && code === 52)) {
+      if (e) e.preventDefault();
+      if (handlers.onBlueButton) handlers.onBlueButton();
+      return;
+    }
+
+    // 3. Channel Up / Channel Down (Alternador de Abas ou Rolagem rápida)
+    if (code === KEY_CH_UP || code === 33) {
+      if (e) e.preventDefault();
+      if (handlers.onChannelUp) handlers.onChannelUp();
+      else if (handlers.onScrollPage) handlers.onScrollPage(-520);
+      return;
+    }
+    if (code === KEY_CH_DOWN || code === 34) {
+      if (e) e.preventDefault();
+      if (handlers.onChannelDown) handlers.onChannelDown();
+      else if (handlers.onScrollPage) handlers.onScrollPage(520);
+      return;
+    }
+  }
+
   function setupRemoteListeners(handlers) {
+    // Alternância automática entre Cursor do Magic Remote e D-Pad
+    window.addEventListener('mousemove', function () {
+      if (document.body.classList.contains('dpad-active')) {
+        document.body.classList.remove('dpad-active');
+      }
+    }, { passive: true });
+
     window.addEventListener('keydown', function (e) {
       var code = e.keyCode || e.which;
       var activeTag = document.activeElement ? document.activeElement.tagName : '';
       var isTyping = activeTag === 'INPUT' || activeTag === 'TEXTAREA';
 
-      // 1. Botão Voltar (LG Back 461 ou Esc 27)
-      if (code === KEY_BACK || code === 27) {
-        e.preventDefault();
-        if (window.NeoNativePlayer && window.NeoNativePlayer.isOpen()) {
-          window.NeoNativePlayer.close();
-          return;
-        }
-        if (handlers.onBack) handlers.onBack();
-        return;
+      // Ativa modo D-Pad ao tocar nas setas
+      if (code >= 37 && code <= 40) {
+        document.body.classList.add('dpad-active');
       }
 
-      // 2. Teclas Coloridas do Controle LG (funcionam a qualquer momento)
-      if (code === KEY_RED || (e.altKey && code === 49)) {
-        e.preventDefault();
-        if (handlers.onRedButton) handlers.onRedButton();
-        return;
-      }
-      if (code === KEY_GREEN || (e.altKey && code === 50)) {
-        e.preventDefault();
-        if (handlers.onGreenButton) handlers.onGreenButton();
-        return;
-      }
-      if (code === KEY_YELLOW || (e.altKey && code === 51)) {
-        e.preventDefault();
-        if (handlers.onYellowButton) handlers.onYellowButton();
-        return;
-      }
-      if (code === KEY_BLUE || (e.altKey && code === 52)) {
-        e.preventDefault();
-        if (handlers.onBlueButton) handlers.onBlueButton();
-        return;
-      }
+      dispatchKey(code, !!e.altKey, handlers, e);
 
-      // 3. Rolagem rápida pelo Channel Up / Channel Down ou PageUp / PageDown
-      if (code === KEY_CH_UP || code === 33) {
-        e.preventDefault();
-        if (handlers.onScrollPage) handlers.onScrollPage(-520);
-        return;
-      }
-      if (code === KEY_CH_DOWN || code === 34) {
-        e.preventDefault();
-        if (handlers.onScrollPage) handlers.onScrollPage(520);
-        return;
+      // Detecção de segurar OK no contexto da janela principal
+      if (code === 13 && !okTimer && !longPressTriggered && !isTyping) {
+        okTimer = setTimeout(function () {
+          longPressTriggered = true;
+          if (handlers.onLongPressOK) handlers.onLongPressOK();
+        }, 550);
       }
 
       // 4. Setas D-Pad quando não estiver digitando na barra de URL
@@ -133,6 +162,27 @@
         else if (code === 40) { e.preventDefault(); moveFocusByDirection('down'); }
       }
     });
+
+    window.addEventListener('keyup', function (e) {
+      var code = e.keyCode || e.which;
+      if (code === 13) {
+        if (okTimer) {
+          clearTimeout(okTimer);
+          okTimer = null;
+        }
+        if (longPressTriggered) {
+          e.preventDefault();
+          e.stopPropagation();
+          longPressTriggered = false;
+        }
+      }
+    });
+
+    return {
+      dispatchKey: function (code, altKey) {
+        dispatchKey(code, altKey, handlers, null);
+      }
+    };
   }
 
   window.NeoRemoteNav = {

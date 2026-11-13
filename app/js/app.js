@@ -64,6 +64,17 @@
   var btnChangeProxy = document.getElementById('btn-change-proxy');
   var btnClearSession = document.getElementById('btn-clear-session');
   var toastEl = document.getElementById('tv-toast');
+  var quickActionsModal = document.getElementById('quick-actions-modal');
+  var qaReload = document.getElementById('qa-reload');
+  var qaZoom = document.getElementById('qa-zoom');
+  var qaZoomVal = document.getElementById('qa-zoom-val');
+  var qaAdblock = document.getElementById('qa-adblock');
+  var qaAdblockVal = document.getElementById('qa-adblock-val');
+  var qaUa = document.getElementById('qa-ua');
+  var qaUaVal = document.getElementById('qa-ua-val');
+  var qaHome = document.getElementById('qa-home');
+  var qaClear = document.getElementById('qa-clear');
+  var qaClose = document.getElementById('qa-close');
 
   var toastTimer = null;
   function showToast(msg) {
@@ -363,6 +374,7 @@
     state.zoomIndex = (state.zoomIndex + 1) % ZOOM_LEVELS.length;
     var z = ZOOM_LEVELS[state.zoomIndex];
     zoomLabel.textContent = Math.round(z * 100) + '%';
+    if (qaZoomVal) qaZoomVal.textContent = Math.round(z * 100) + '%';
     showToast('Zoom da página: ' + Math.round(z * 100) + '%');
     if (browserFrame.contentWindow) {
       browserFrame.contentWindow.postMessage({ type: 'WEBOS_CMD_ZOOM', zoom: z }, '*');
@@ -372,6 +384,7 @@
   function toggleAdblock() {
     var nextState = !state.adblockEnabled;
     sendProxyConfig({ adblock: nextState }, function () {
+      if (qaAdblockVal) qaAdblockVal.textContent = nextState ? 'ON' : 'OFF';
       showToast('AdBlock ' + (nextState ? 'ATIVADO' : 'DESATIVADO'));
     });
   }
@@ -380,11 +393,55 @@
     state.uaIndex = (state.uaIndex + 1) % UA_MODES.length;
     var mode = UA_MODES[state.uaIndex];
     uaLabel.textContent = UA_LABELS[mode];
+    if (qaUaVal) qaUaVal.textContent = UA_LABELS[mode];
     sendProxyConfig({ userAgentMode: mode }, function () {
       showToast('Modo User-Agent: ' + UA_LABELS[mode] + ' (recarregando...)');
       var tab = getActiveTab();
       if (tab && tab.url) loadUrlInFrame(tab.url);
     });
+  }
+
+  function openQuickActions(show) {
+    if (show === undefined) show = quickActionsModal.classList.contains('hidden');
+    if (show) {
+      qaZoomVal.textContent = Math.round(ZOOM_LEVELS[state.zoomIndex] * 100) + '%';
+      qaAdblockVal.textContent = state.adblockEnabled ? 'ON' : 'OFF';
+      qaUaVal.textContent = UA_LABELS[UA_MODES[state.uaIndex]];
+      quickActionsModal.classList.remove('hidden');
+      if (qaReload) qaReload.focus();
+    } else {
+      quickActionsModal.classList.add('hidden');
+      var tab = getActiveTab();
+      if (tab && tab.url && browserFrame.contentWindow) {
+        browserFrame.focus();
+      } else {
+        urlInput.focus();
+      }
+    }
+  }
+
+  function cycleTabs(direction) {
+    if (state.tabs.length <= 1) return;
+    var idx = -1;
+    for (var i = 0; i < state.tabs.length; i++) {
+      if (state.tabs[i].id === state.activeTabId) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx === -1) idx = 0;
+    var nextIdx = (idx + direction + state.tabs.length) % state.tabs.length;
+    var targetTab = state.tabs[nextIdx];
+    switchTab(targetTab.id);
+    showToast('Aba ' + (nextIdx + 1) + '/' + state.tabs.length + ': ' + (targetTab.title || 'Página Inicial'));
+  }
+
+  function navigateToHome() {
+    var tab = getActiveTab();
+    if (!tab) return;
+    tab.url = '';
+    tab.title = 'Nova Aba';
+    switchTab(tab.id);
   }
 
   function goBack() {
@@ -466,13 +523,68 @@
     });
   });
 
+  // Eventos do Modal de Ações Rápidas (Estilo Wren)
+  if (qaReload) {
+    qaReload.addEventListener('click', function () {
+      openQuickActions(false);
+      var tab = getActiveTab();
+      if (tab && tab.url) {
+        browserFrame.src = proxyBase + '/proxy?url=' + encodeURIComponent(tab.url) + '&type=doc&_t=' + Date.now();
+      }
+    });
+  }
+  if (qaZoom) {
+    qaZoom.addEventListener('click', function () {
+      cycleZoom();
+    });
+  }
+  if (qaAdblock) {
+    qaAdblock.addEventListener('click', function () {
+      toggleAdblock();
+    });
+  }
+  if (qaUa) {
+    qaUa.addEventListener('click', function () {
+      cycleUserAgent();
+    });
+  }
+  if (qaHome) {
+    qaHome.addEventListener('click', function () {
+      openQuickActions(false);
+      navigateToHome();
+    });
+  }
+  if (qaClear) {
+    qaClear.addEventListener('click', function () {
+      openQuickActions(false);
+      sendProxyConfig({ clearSession: true }, function () {
+        showToast('Cookies e sessão limpos com sucesso');
+      });
+    });
+  }
+  if (qaClose) {
+    qaClose.addEventListener('click', function () {
+      openQuickActions(false);
+    });
+  }
+
   window.addEventListener('message', function (event) {
     var data = event.data;
     if (!data || typeof data !== 'object') return;
     var tab = getActiveTab();
     if (!tab) return;
 
-    if (data.type === 'WEBOS_BROWSER_URL_CHANGED') {
+    if (data.type === 'WEBOS_REMOTE_KEY') {
+      if (navInstance && navInstance.dispatchKey) {
+        navInstance.dispatchKey(data.keyCode, !!data.altKey);
+      }
+    } else if (data.type === 'WEBOS_PAGE_TOP_REACHED') {
+      if (state.chromeCollapsed) {
+        toggleTopChrome(false);
+      }
+    } else if (data.type === 'WEBOS_LONG_PRESS_OK') {
+      openQuickActions(true);
+    } else if (data.type === 'WEBOS_BROWSER_URL_CHANGED') {
       if (data.url && data.url.indexOf('http') === 0) {
         tab.url = data.url;
         urlInput.value = data.url;
@@ -496,19 +608,24 @@
     }
   });
 
-  // Inicializa atalhos do Controle Remoto LG
-  window.NeoRemoteNav.init({
+  // Inicializa atalhos do Controle Remoto LG (Sofa-First UX)
+  var navInstance = window.NeoRemoteNav.init({
     onBack: function () {
-      if (state.chromeCollapsed) {
+      if (quickActionsModal && !quickActionsModal.classList.contains('hidden')) {
+        openQuickActions(false);
+      } else if (state.chromeCollapsed) {
         toggleTopChrome(false);
       } else {
         goBack();
       }
     },
     onRedButton: function () { toggleTopChrome(); },
-    onGreenButton: function () { cycleZoom(); },
-    onYellowButton: function () { toggleAdblock(); },
-    onBlueButton: function () { cycleUserAgent(); },
+    onGreenButton: function () { navigateToHome(); },
+    onYellowButton: function () { openQuickActions(); },
+    onBlueButton: function () { createTab(''); showToast('Nova aba criada'); },
+    onChannelUp: function () { cycleTabs(1); },
+    onChannelDown: function () { cycleTabs(-1); },
+    onLongPressOK: function () { openQuickActions(true); },
     onScrollPage: function (deltaY) {
       if (browserFrame.contentWindow) {
         browserFrame.contentWindow.postMessage({ type: 'WEBOS_CMD_SCROLL', deltaY: deltaY }, '*');

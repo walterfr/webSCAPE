@@ -362,4 +362,61 @@
       }
     }
   });
+
+  // 9. Encaminhamento de Teclas do Controle Remoto LG para a Janela Pai
+  var okPressTimer = null;
+  var longPressFired = false;
+
+  window.addEventListener('keydown', function (e) {
+    var code = e.keyCode || e.which;
+
+    // Teclas globais do controle LG
+    if (
+      code === 461 || code === 27 || // Back / Esc
+      code === 403 || code === 404 || code === 405 || code === 406 || // Red, Green, Yellow, Blue
+      code === 427 || code === 428 || code === 33 || code === 34 // Channel Up/Down, Page Up/Down
+    ) {
+      e.preventDefault();
+      try {
+        window.parent.postMessage({
+          type: 'WEBOS_REMOTE_KEY',
+          keyCode: code,
+          altKey: !!e.altKey
+        }, '*');
+      } catch (_) {}
+      return;
+    }
+
+    // Seta para cima no topo da página revela a barra superior (estilo Wren)
+    if (code === 38 && (window.pageYOffset || window.scrollY || 0) <= 5) {
+      try {
+        window.parent.postMessage({ type: 'WEBOS_PAGE_TOP_REACHED' }, '*');
+      } catch (_) {}
+    }
+
+    // Detecção de segurar botão OK (Long-press OK para menu rápido)
+    if (code === 13 && !okPressTimer && !longPressFired) {
+      okPressTimer = setTimeout(function () {
+        longPressFired = true;
+        try {
+          window.parent.postMessage({ type: 'WEBOS_LONG_PRESS_OK' }, '*');
+        } catch (_) {}
+      }, 550);
+    }
+  }, true);
+
+  window.addEventListener('keyup', function (e) {
+    var code = e.keyCode || e.which;
+    if (code === 13) {
+      if (okPressTimer) {
+        clearTimeout(okPressTimer);
+        okPressTimer = null;
+      }
+      if (longPressFired) {
+        e.preventDefault();
+        e.stopPropagation();
+        longPressFired = false;
+      }
+    }
+  }, true);
 })();

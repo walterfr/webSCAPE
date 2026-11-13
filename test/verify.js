@@ -239,6 +239,18 @@ async function runTests() {
                   proxyInst.server.close();
                   upstream.close();
                   console.log('   OK: Proxy removeu bloqueios, transpilou HTML e preservou Origin/Referer reais.');
+
+                  console.log('--- [8/8] Testando Certificados CA Mozilla e mediaExtension no appinfo.json ---');
+                  var caFile = path.join(__dirname, '../service/certs/cacert.pem');
+                  assert(fs.existsSync(caFile), 'Arquivo cacert.pem deve existir');
+                  assert(fs.statSync(caFile).size > 100000, 'cacert.pem deve ter o bundle completo Mozilla (>100KB)');
+
+                  var appinfo = JSON.parse(fs.readFileSync(path.join(__dirname, '../app/appinfo.json'), 'utf8'));
+                  assert(appinfo.trustExternal === true, 'trustExternal deve estar ativo');
+                  assert(appinfo.mediaExtension && appinfo.mediaExtension.mse, 'mediaExtension.mse deve estar configurado');
+                  assert(appinfo.mediaExtension.mse.maxVideoSourceBuffer === 150, 'maxVideoSourceBuffer deve ser 150MB');
+                  console.log('   OK: Bundle CA e otimizações de buffer de mídia validadas.');
+
                   resolve();
                 } catch (err) {
                   proxyInst.server.close();

@@ -12,6 +12,18 @@
   "iconColor": "#38bdf8",
   "disableBackHistoryAPI": true,
   "handlesRelaunch": true,
+  "trustExternal": true,
+  "mediaExtension": {
+    "mse": {
+      "enableSourceBufferFlush": true,
+      "maxVideoSourceBuffer": 150,
+      "maxAudioSourceBuffer": 30,
+      "videoPrerollTime": 200,
+      "ignoreBufferLowEvent": true,
+      "disableVideoIntrinsicSize": true,
+      "enableVP9DMA": true
+    }
+  },
   "requiredPermissions": [
     "time.query",
     "activity.operation",
